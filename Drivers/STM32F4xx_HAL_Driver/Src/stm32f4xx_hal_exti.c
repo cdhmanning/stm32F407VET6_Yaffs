@@ -492,6 +492,7 @@ uint32_t HAL_EXTI_GetPending(EXTI_HandleTypeDef *hexti, uint32_t Edge)
   /* return 1 if bit is set else 0 */
   regval = ((EXTI->PR & maskline) >> linepos);
   return regval;
+  (void)Edge;
 }
 
 /**
@@ -517,6 +518,7 @@ void HAL_EXTI_ClearPending(EXTI_HandleTypeDef *hexti, uint32_t Edge)
 
   /* Clear Pending bit */
   EXTI->PR =  maskline;
+  (void) Edge;
 }
 
 /**

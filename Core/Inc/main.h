@@ -32,7 +32,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+void systick_hook(void);
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

@@ -960,6 +960,7 @@ static void FLASH_MassErase(uint8_t VoltageRange, uint32_t Banks)
   CLEAR_BIT(FLASH->CR, FLASH_CR_PSIZE);
   FLASH->CR |= FLASH_CR_MER;
   FLASH->CR |= FLASH_CR_STRT | ((uint32_t)VoltageRange <<8U);
+  (void) Banks;
 }
 
 /**
@@ -1046,6 +1047,7 @@ static HAL_StatusTypeDef FLASH_OB_EnableWRP(uint32_t WRPSector, uint32_t Banks)
   }
   
   return status;
+  (void) Banks;
 }
 
 /**
@@ -1082,6 +1084,7 @@ static HAL_StatusTypeDef FLASH_OB_DisableWRP(uint32_t WRPSector, uint32_t Banks)
   }
   
   return status;
+  (void) Banks;
 }
 #endif /* STM32F40xxx || STM32F41xxx || STM32F401xx || STM32F410xx || STM32F411xE || STM32F446xx || STM32F412Zx || STM32F412Vx || STM32F412Rx || STM32F412Cx
           STM32F413xx || STM32F423xx */

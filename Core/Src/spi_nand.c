@@ -14,7 +14,7 @@ static int spi_band_transaction(unsigned op_code,
 								unsigned char *data_bytes,
 								unsigned n_data_bytes)
 {
-
+ HAL_SPI_Transmit
 }
 
 static int spi_nand_status(unsigned *status)

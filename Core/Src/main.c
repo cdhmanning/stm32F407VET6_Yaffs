@@ -71,7 +71,8 @@ unsigned n_loops;
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  //char str[20];
+  uint32_t pr_count;
+  uint32_t last_pr_count = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -108,8 +109,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  uint32_t pr_count;
-	  uint32_t last_pr_count;
 	  n_loops++;
     /* USER CODE END WHILE */
 
@@ -120,7 +119,7 @@ int main(void)
 	if (pr_count != last_pr_count) {
 		//sprintf(str, "%d\n", pr_count);
 		//CDC_Transmit_FS(str, strlen(str));
-		printf("The pr_count value is %d\n", pr_count);
+		printf("The pr_count value is %u\n", (unsigned)pr_count);
 	}
 	last_pr_count = pr_count;
   }
@@ -177,9 +176,8 @@ void systick_hook(void)
 
 	cdc_print_sink_tick();
 
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, (n_ticks >>8) & 1);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, (n_ticks >>9) & 1);
-
+	gpio_LED0((n_ticks >>8) & 1);
+	gpio_LED1((n_ticks >>9) & 1);
 }
 /* USER CODE END 4 */
 

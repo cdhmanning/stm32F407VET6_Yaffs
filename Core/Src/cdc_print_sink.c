@@ -1,4 +1,5 @@
 #include "cdc_print_sink.h"
+#include "usbd_cdc_if.h"
 
 #include <stdint.h>
 
