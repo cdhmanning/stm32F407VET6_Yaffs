@@ -25,6 +25,8 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
+#include "spi_nand.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -103,6 +105,9 @@ int main(void)
   HAL_Delay(2000);
 
   printf("\n\nStarting " __DATE__ " " __TIME__"\n");
+
+  spi_nand_test();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
