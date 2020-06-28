@@ -19,13 +19,6 @@ static inline uint32_t tx_has_space(void)
 	return (tx_head + 1 - tx_tail) & tx_buffer_mask;
 }
 
-static inline void tx_add(uint8_t ch)
-{
-	if (tx_has_space()) {
-		tx_buffer[tx_head &tx_buffer_mask] = ch;
-		tx_head++;
-	}
-}
 
 static void tx_buffer_copy(uint8_t *buffer, uint32_t buffer_size)
 {
@@ -95,6 +88,19 @@ static void pc_flush(void)
 
 	if (ret == 0) {
 			pc_buffer_holding = 0;
+	}
+}
+
+static inline void tx_add(uint8_t ch)
+{
+	while (!tx_has_space()) {
+		/* Spin. */
+	}
+	tx_buffer[tx_head &tx_buffer_mask] = ch;
+	tx_head++;
+
+	if (tx_n_holding() >= sizeof(pc_buffer)) {
+		pc_flush();
 	}
 }
 

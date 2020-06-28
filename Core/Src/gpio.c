@@ -48,7 +48,10 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_15, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
 
   /*Configure GPIO pins : PA6 PA7 */
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
@@ -80,8 +83,8 @@ void gpio_LED1(uint32_t enable)
 void gpio_NAND_CS(uint32_t ncs)
 {
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, ncs);
-
 }
+
 /* USER CODE END 2 */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

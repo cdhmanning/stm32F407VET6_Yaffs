@@ -2,7 +2,19 @@
 #include "gpio.h"
 #include "spi.h"
 
+#define ID_MANUFACTURER_MICRON 	0x2c
+#define ID_MICRON_1Gbit_3V3		0x14
+
+#define STATUS_OIP				0x01
+
 #define nand_spi hspi3
+
+#if 1
+#include <stdio.h>
+#define dprintf printf
+#else
+#define dprintf(...) do { } while (0)
+#endif
 
 static int spi_nand_transaction(uint8_t *header,
 								 uint32_t header_size,
@@ -13,12 +25,17 @@ static int spi_nand_transaction(uint8_t *header,
 	int ret = 0;
 
 	gpio_NAND_CS(0);
+	gpio_NAND_CS(0);
+	/* Send transaction header (opcode, address, dummy) */
 	if (header && header_size)
 		ret = HAL_SPI_Transmit(&nand_spi, header, header_size, 10);
+
+	/* Send or receive data */
 	if (data_is_tx && data && data_size)
-		ret = HAL_SPI_Transmit(&nand_spi, header, header_size, 10);
+		ret = HAL_SPI_Transmit(&nand_spi, data, data_size, 10);
 	else if (data && data_size)
-		ret = HAL_SPI_Receive(&nand_spi, header, header_size, 10);
+		ret = HAL_SPI_Receive(&nand_spi, data, data_size, 10);
+	gpio_NAND_CS(1);
 	gpio_NAND_CS(1);
 
 	return ret;
@@ -81,7 +98,6 @@ static int spi_nand_addr_transaction(uint8_t op_code,
 								data, data_size);
 }
 
-
 int spi_nand_get_feature(uint32_t address,
 						 uint8_t *data)
 {
@@ -93,27 +109,66 @@ int spi_nand_get_feature(uint32_t address,
 int spi_nand_set_feature(uint32_t address,
 						 uint8_t data)
 {
-	return spi_nand_addr_transaction(0x0f,
+	return spi_nand_addr_transaction(0x1f,
 									 address, 1,
 									 0, 1, &data, 1);
 }
 
+int spi_nand_get_block_lock(uint8_t *lock)
+{
+	return spi_nand_get_feature(0xA0, lock);
+}
 
-int spi_nand_status(uint8_t *status)
+int spi_nand_set_block_lock(uint8_t lock)
+{
+	return spi_nand_set_feature(0xA0, lock);
+}
+
+int spi_nand_get_configuration(uint8_t *cfg)
+{
+	return spi_nand_get_feature(0xB0, cfg);
+}
+
+int spi_nand_set_configuration(uint8_t cfg)
+{
+	return spi_nand_set_feature(0xB0, cfg);
+}
+
+int spi_nand_get_status(uint8_t *status)
 {
 	return spi_nand_get_feature(0xc0, status);
 }
 
+int spi_nand_wait_not_busy(const char *label)
+{
+	int n = 0;
+	uint8_t status;
+	while(1) {
+		spi_nand_get_status(&status);
+		if ((status & STATUS_OIP) == 0)
+			break;
+		n++;
+	}
+	if (label)
+			dprintf("%s took %d status reads while busy\n", label, n);
+	return n;
+}
 
-
-int spi_nand_reset(void)
+int spi_nand_cmd_reset(void)
 {
 	return spi_nand_no_data_transaction(0xff);
 }
 
+int spi_nand_reset(void)
+{
+	int ret = spi_nand_cmd_reset();
+	spi_nand_wait_not_busy("reset");
+	return ret;
+}
+
 int spi_nand_read_id(uint8_t id[2])
 {
-	return spi_nand_no_addr_transaction(0xff,
+	return spi_nand_no_addr_transaction(0x9f,
 										1, 0, id, 2);
 }
 
@@ -166,8 +221,45 @@ int spi_nand_program_execute(uint32_t page)
 
 int spi_nand_init(void)
 {
-	spi_nand_reset();
-	return spi_nand_reset();
+	int ret;
+	uint8_t block_lock0;
+	uint8_t block_lock1;
+	uint8_t id[2];
+	uint8_t status;
+
+	/* Read status a couple of times to clear the bus. */
+	spi_nand_get_status(&status);
+	spi_nand_get_status(&status);
+
+	/* Reset to get the right starting state.
+	 */
+	ret = spi_nand_reset();
+
+	/* Check it is the expected part: */
+	ret = spi_nand_read_id(id);
+	if (id[0] != ID_MANUFACTURER_MICRON ||
+		id[1] != ID_MICRON_1Gbit_3V3) {
+
+		dprintf("Got wrong id: expected %02X,%02X got %02X,%02X\n",
+				ID_MANUFACTURER_MICRON, ID_MICRON_1Gbit_3V3,
+				id[0], id[1]);
+		return -1;
+	}
+
+	/*
+	 * If need be, reconfigure block_lock to disable the
+	 * WP# and HOLD# pins.
+	 */
+	ret = spi_nand_get_block_lock(&block_lock0);
+	if ((block_lock0 & 0x2) == 0) {
+		block_lock1 = block_lock0 | 0x2;
+		ret = spi_nand_set_block_lock(block_lock1);
+		ret = spi_nand_get_block_lock(&block_lock1);
+		dprintf("Disabling WPE and HOLD#, block lock changed from %02x to %02x\n",
+			 block_lock0, block_lock1);
+	}
+
+	return ret;
 }
 
 #if 1
@@ -175,17 +267,26 @@ int spi_nand_init(void)
 #include <stdio.h>
 void spi_nand_test(void)
 {
-	uint8_t id[2] = {0xAA,0xAA};
+	uint8_t status;
+	uint8_t config;
+
 	int ret;
 
 	printf("\n\nspi_nand_test\n\n");
-	printf("Calling spi_nand_init()...");
-	ret = spi_nand_init();
-	printf("returned %d\n", ret);
 
-	printf("Calling spi_nand_read_id()...");
-	ret = spi_nand_read_id(id);
-	printf("returned %d, id 0x%02x 0x%02x\n", ret, id[0], id[1]);
+	printf("spi_nand_init()...\n");
+	ret = spi_nand_init();
+	printf("spi_nand_init()... returned %d\n", ret);
+
+
+	printf("Calling spi_nand_get_configuration()...");
+	ret = spi_nand_get_configuration(&config);
+	printf("returned %d, configuration %02x\n", ret, config);
+
+	printf("Calling spi_nand_get_status()...");
+	ret = spi_nand_get_status(&status);
+	printf("returned %d, status %02x\n", ret, status);
+
 	printf("\n\nEnd of spi_nand_test()\n\n");
 }
 

@@ -25,8 +25,6 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-#include "spi_nand.h"
-
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -119,12 +117,10 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	pr_count = n_ticks / 100;
+	pr_count = n_ticks / 10000;
 
 	if (pr_count != last_pr_count) {
-		//sprintf(str, "%d\n", pr_count);
-		//CDC_Transmit_FS(str, strlen(str));
-		printf("The pr_count value is %u\n", (unsigned)pr_count);
+		//printf("The pr_count value is %u\n", (unsigned)pr_count);
 	}
 	last_pr_count = pr_count;
   }
