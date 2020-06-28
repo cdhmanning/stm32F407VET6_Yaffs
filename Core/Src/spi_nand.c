@@ -224,6 +224,8 @@ int spi_nand_init(void)
 	int ret;
 	uint8_t block_lock0;
 	uint8_t block_lock1;
+	uint8_t config0;
+	uint8_t config1;
 	uint8_t id[2];
 	uint8_t status;
 
@@ -259,6 +261,15 @@ int spi_nand_init(void)
 			 block_lock0, block_lock1);
 	}
 
+	/* If need be, reconfigure the configuration byte to enable ECC. */
+	ret = spi_nand_get_configuration(&config0);
+	if ((config0 & 0x10) == 0) {
+		config1 = 10 | 0x10;
+		ret = spi_nand_set_configuration(config1);
+		ret = spi_nand_get_configuration(&config1);
+		dprintf("Enabling ECC, configuration changed from %02x to %02x\n",
+			 config0, config1);
+	}
 	return ret;
 }
 
