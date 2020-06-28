@@ -269,6 +269,7 @@ void spi_nand_test(void)
 {
 	uint8_t status;
 	uint8_t config;
+	uint8_t block_lock;
 
 	int ret;
 
@@ -286,6 +287,23 @@ void spi_nand_test(void)
 	printf("Calling spi_nand_get_status()...");
 	ret = spi_nand_get_status(&status);
 	printf("returned %d, status %02x\n", ret, status);
+
+	spi_nand_write_enable(1);
+
+	printf("Write enabled,  spi_nand_get_status()...");
+	ret = spi_nand_get_status(&status);
+	printf("returned %d, status %02x\n", ret, status);
+
+	spi_nand_write_enable(0);
+
+	printf("Write disabled,  spi_nand_get_status()...");
+	ret = spi_nand_get_status(&status);
+	printf("returned %d, status %02x\n", ret, status);
+
+	printf("spi_nand_get_block_lock()...");
+	ret = spi_nand_get_block_lock(&block_lock);
+	printf("returned %d, block_lock %02x\n", ret, block_lock);
+
 
 	printf("\n\nEnd of spi_nand_test()\n\n");
 }

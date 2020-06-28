@@ -1,9 +1,3 @@
-/*
- * spi_nand.h
- *
- *  Created on: 21/06/2020
- *      Author: charles
- */
 
 #ifndef __SPI_NAND_H__
 #define __SPI_NAND_H__

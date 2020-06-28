@@ -29,6 +29,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "cdc_print_sink.h"
+#include "spi_nand.h"
 
 /* USER CODE END Includes */
 
