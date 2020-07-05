@@ -55,6 +55,57 @@ u32 yaffsfs_CurrentTime(void)
 
 u32 yaffs_trace_mask= ~0;
 
+static struct yaffs_dev this_dev;
+
+int yaffs_spi_nand_load_driver(const char *name,
+							   uint32_t start_block,
+							   uint32_t end_block)
+{
+	struct yaffs_dev *dev = &this_dev;
+	char *name_copy = strdup(name);
+	struct yaffs_param *param;
+	struct yaffs_driver *drv;
+
+
+	if(!name_copy) {
+		free(name_copy);
+		return NULL;
+	}
+
+	param = &dev->param;
+	drv = &dev->drv;
+
+	memset(dev, 0, sizeof(*dev));
+
+	param->name = name_copy;
+
+	param->total_bytes_per_chunk = 2048;
+	param->chunks_per_block = 64;
+	param->n_reserved_blocks = 5;
+	param->start_block = start_block;
+	param->end_block = end_block;
+	param->use_nand_ecc = 1;
+	param->is_yaffs2 = 1;
+
+#if 0
+	drv->drv_write_chunk_fn = yaffs_spi_nand_write_chunk;
+	drv->drv_read_chunk_fn = yaffs_spi_nand_read_chunk;
+	drv->drv_erase_fn = yaffs_spi_nand_erase_block;
+	drv->drv_initialise_fn = yaffs_spi_nand_initialise;
+	drv->drv_deinitialise_fn = yaffs_spi_nand_deinitialise;
+
+#endif
+
+	param->n_caches = 2;
+	param->disable_soft_del = 1;
+
+	dev->driver_context = (void *) 1;	// Used to identify the device in fstat.
+
+	yaffs_add_device(dev);
+
+	return YAFFS_OK;
+}
+
 void yaffs_call_all_funcs(void)
 {
 	int h;

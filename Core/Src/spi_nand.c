@@ -2,8 +2,7 @@
 #include "gpio.h"
 #include "spi.h"
 #include <stdlib.h>
-
-
+#include <string.h>
 
 #define ID_MANUFACTURER_MICRON 	0x2c
 #define ID_MICRON_1Gbit_3V3		0x14
@@ -30,6 +29,18 @@
 #else
 #define dprintf(...) do { } while (0)
 #endif
+
+
+
+void print_buffer(const uint8_t *buffer, uint32_t buffer_size)
+{
+	uint32_t i;
+
+	for(i = 0; i < buffer_size; i++)
+		printf(" %02x%s", buffer[i], (i+1) & 0xf ? "" : "\n");
+}
+
+
 
 /* Base transaction handler and
  * three variants of commands to perform transaction.
@@ -93,7 +104,9 @@ static int spi_nand_addr_transaction(uint8_t op_code,
 								uint8_t *data,
 								uint32_t data_size)
 {
-	uint8_t header[MAX_ADDRESS_BYTES + MAX_DUMMY_BYTES + 1];
+	uint8_t header[1 /* space for opcode */
+				   + MAX_ADDRESS_BYTES
+				   + MAX_DUMMY_BYTES];
 	uint32_t header_size;
 
 	if (n_address_bytes > MAX_ADDRESS_BYTES ||
@@ -416,10 +429,35 @@ int spi_nand_check_block_ok(uint32_t block, uint32_t *is_ok)
 
 	ret = spi_nand_read_page(block * PAGES_PER_BLOCK, PAGE_OOB_OFFSET,
 							 buffer, sizeof(buffer), &status);
-	dprintf("block %u, read bytes returned %d: status %02x, bytes %02x %02x\n",
+	dprintf("block %lu, read bytes returned %d: status %02x, bytes %02x %02x\n",
 					block, ret, status, buffer[0], buffer[1] );
 	if (is_ok)
 		*is_ok = (buffer[0] == 0xff && buffer[1] == 0xff);
+	return ret;
+}
+
+int spi_nand_mark_block_bad(uint32_t block, uint8_t *status)
+{
+	uint8_t buffer[16] = {0};
+	int ret;
+	uint8_t config;
+
+	ret = spi_nand_get_configuration(&config);
+
+	if (config & 0x10) {
+		/* ECC is enabled, disable. */
+		ret = spi_nand_set_configuration(config & ~0x10);
+	}
+
+	/* Write 16 bytes of 0x00 to the spare area. */
+	ret = spi_nand_write_page(block * PAGES_PER_BLOCK, PAGE_OOB_OFFSET,
+						     buffer, sizeof(buffer), status);
+
+	if (config & 0x10) {
+		/* ECC was enabled, re-enable. */
+		ret = spi_nand_set_configuration(config);
+	}
+
 	return ret;
 }
 
@@ -427,21 +465,23 @@ void check_bad_blocks_test(void)
 {
 	int i;
 	uint32_t block_ok;
+	uint8_t status;
 
 	for(i = 0; i < 10; i++) {
 		spi_nand_check_block_ok(i, &block_ok);
-		printf("Block %d ok? %d\n", i, block_ok);
+		printf("Block %d ok? %lu\n", i, block_ok);
 	}
+
+	spi_nand_mark_block_bad(7, &status);
+
+	for(i = 0; i < 10; i++) {
+		spi_nand_check_block_ok(i, &block_ok);
+		printf("Block %d ok? %lu\n", i, block_ok);
+	}
+
+	spi_nand_erase_block(7, &status);
 }
 
-
-static void dump_buffer(const uint8_t *buffer, uint32_t buffer_size)
-{
-	uint32_t i;
-
-	for(i = 0; i < buffer_size; i++)
-		printf(" %02x%s", buffer[i], (i+1) & 0xf ? "" : "\n");
-}
 
 void page_erase_test(void)
 {
@@ -456,7 +496,7 @@ void page_erase_test(void)
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
-	dump_buffer(buffer, sizeof(buffer));
+	print_buffer(buffer, sizeof(buffer));
 
 	ret = spi_nand_erase_block(0, &status);
 	printf("block erase returned %d, status %02x\n",
@@ -467,7 +507,7 @@ void page_erase_test(void)
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
-	dump_buffer(buffer, sizeof(buffer));
+	print_buffer(buffer, sizeof(buffer));
 }
 
 void page_read_write_test(void)
@@ -483,7 +523,7 @@ void page_read_write_test(void)
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
-	dump_buffer(buffer, sizeof(buffer));
+	print_buffer(buffer, sizeof(buffer));
 
 	memcpy(buffer, "hello", 6);
 
@@ -498,7 +538,7 @@ void page_read_write_test(void)
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
-	dump_buffer(buffer, sizeof(buffer));
+	print_buffer(buffer, sizeof(buffer));
 
 }
 
