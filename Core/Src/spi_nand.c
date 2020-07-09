@@ -272,9 +272,10 @@ static int spi_nand_wait_not_busy(const char *label, uint8_t *statusptr)
 {
 	int n = 0;
 	uint8_t status;
+	int ret;
 
 	while(1) {
-		spi_nand_get_status(&status);
+		ret = spi_nand_get_status(&status);
 		if ((status & STATUS_OIP) == 0)
 			break;
 		n++;
@@ -284,7 +285,7 @@ static int spi_nand_wait_not_busy(const char *label, uint8_t *statusptr)
 	if (statusptr)
 		*statusptr = status;
 
-	return n;
+	return ret;
 }
 
 
@@ -373,7 +374,7 @@ int spi_nand_read_page(uint32_t page, uint32_t offset,
 	uint8_t status;
 
 	ret = spi_nand_cmd_read_array_to_cache(page);
-	ret = spi_nand_wait_not_busy("reading", &status);
+	ret = spi_nand_wait_not_busy(NULL /* "reading" */, &status);
 
 	ret = spi_nand_cmd_read_from_cache(offset, buffer, buffer_size);
 
@@ -426,13 +427,17 @@ int spi_nand_check_block_ok(uint32_t block, uint32_t *is_ok)
 	int ret;
 	uint8_t buffer[2];
 	uint8_t status;
+	uint32_t ok;
 
 	ret = spi_nand_read_page(block * PAGES_PER_BLOCK, PAGE_OOB_OFFSET,
 							 buffer, sizeof(buffer), &status);
-	dprintf("block %lu, read bytes returned %d: status %02x, bytes %02x %02x\n",
+	ok = (buffer[0] == 0xff && buffer[1] == 0xff);
+
+	if (!ok)
+		dprintf("block %lu, read bytes returned %d: status %02x, bytes %02x %02x\n",
 					block, ret, status, buffer[0], buffer[1] );
 	if (is_ok)
-		*is_ok = (buffer[0] == 0xff && buffer[1] == 0xff);
+		*is_ok = ok;
 	return ret;
 }
 
@@ -466,20 +471,30 @@ void check_bad_blocks_test(void)
 	int i;
 	uint32_t block_ok;
 	uint8_t status;
+	int n_bad = 0;
+	int ret;
 
-	for(i = 0; i < 10; i++) {
+	for(i = 0; i < 1024; i++) {
 		spi_nand_check_block_ok(i, &block_ok);
-		printf("Block %d ok? %lu\n", i, block_ok);
+		if (!block_ok) {
+			printf("Block %d ok? %lu\n", i, block_ok);
+			n_bad++;
+		}
 	}
 
+	printf("Total bad blocks %d\n", n_bad);
+
+#if 0
 	spi_nand_mark_block_bad(7, &status);
 
 	for(i = 0; i < 10; i++) {
 		spi_nand_check_block_ok(i, &block_ok);
 		printf("Block %d ok? %lu\n", i, block_ok);
 	}
+#endif
+	ret = spi_nand_erase_block(7, &status);
+	printf("spi_nand_erase_block returned %d, status %02x\n", ret, status);
 
-	spi_nand_erase_block(7, &status);
 }
 
 
@@ -594,12 +609,12 @@ void spi_nand_test(void)
 
 	check_bad_blocks_test();
 
-	page_erase_test();
 	page_read_write_test();
+	page_erase_test();
 
 	printf("\n\nEnd of spi_nand_test()\n\n");
 
-#if 0
+#if 1
 	malloc_test(140*1024);
 	malloc_test(100*1024);
 	malloc_test(20*1024);

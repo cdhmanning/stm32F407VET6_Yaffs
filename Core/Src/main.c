@@ -108,7 +108,7 @@ int main(void)
 
   printf("\n\nStarting " __DATE__ " " __TIME__"\n");
 
-  yaffs_sizes();
+  //yaffs_sizes();
   yaffs_test();
   spi_nand_test();
 
