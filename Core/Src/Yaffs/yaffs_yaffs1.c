@@ -20,7 +20,7 @@
 
 int yaffs1_scan(struct yaffs_dev *dev)
 {
-#if 0
+#ifdef CONFIG_YAFFS_NO_YAFFS1
 	return YAFFS_FAIL;
 #else
 	struct yaffs_ext_tags tags;

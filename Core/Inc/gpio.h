@@ -40,6 +40,10 @@ void MX_GPIO_Init(void);
 /* USER CODE BEGIN Prototypes */
 void gpio_LED0(uint32_t enable);
 void gpio_LED1(uint32_t enable);
+void gpio_debug0(uint32_t enable);
+void gpio_debug1(uint32_t enable);
+void gpio_debug2(uint32_t enable);
+void gpio_debug3(uint32_t enable);
 void gpio_NAND_CS(uint32_t ncs);
 /* USER CODE END Prototypes */
 

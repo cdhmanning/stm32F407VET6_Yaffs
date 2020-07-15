@@ -12,12 +12,11 @@
 
 #define STATUS_OIP				0x01
 
-#define nand_spi hspi3
+#define nand_spi hspi1
 
-#define PAGES_PER_BLOCK			64
-#define PAGE_OOB_OFFSET			2048
-
-
+#define PAGES_PER_BLOCK					64
+#define BAD_BLOCK_MARKER_OFFSET			0x800
+#define BAD_BLOCK_MARKER_SIZE			4
 /*
  * Note that all functions of the form spi_nand_cmd_xxx
  * issue NAND commands.
@@ -210,9 +209,9 @@ static int spi_nand_cmd_program_execute(uint32_t page)
 									0, NULL, 0);
 }
 
-static int spi_nand_cmd_program_load(uint32_t offset, const uint8_t *buffer, uint32_t buffer_size)
+static int spi_nand_cmd_program_load(uint32_t random_data, uint32_t offset, const uint8_t *buffer, uint32_t buffer_size)
 {
-	return spi_nand_addr_transaction(0x02,
+	return spi_nand_addr_transaction(random_data ? 0x84 : 0x02,
 									offset, 2,
 									0,
 									1, (uint8_t *)buffer, buffer_size);
@@ -296,7 +295,7 @@ static int spi_nand_wait_not_busy(const char *label, uint8_t *statusptr)
 int spi_nand_reset(void)
 {
 	int ret = spi_nand_cmd_reset();
-	spi_nand_wait_not_busy("reset", NULL);
+	spi_nand_wait_not_busy(NULL /* "reset" */, NULL);
 	return ret;
 }
 
@@ -366,17 +365,30 @@ int spi_nand_init(void)
 	return ret;
 }
 
-int spi_nand_read_page(uint32_t page, uint32_t offset,
-					   uint8_t *buffer, uint32_t buffer_size,
+
+int spi_nand_read_page(uint32_t page,
+					   struct spi_nand_buffer_op *ops,
+					   uint32_t n_ops,
 					   uint8_t *statusptr)
 {
 	int ret;
 	uint8_t status;
+	uint32_t i;
 
+	gpio_debug0(1);
 	ret = spi_nand_cmd_read_array_to_cache(page);
-	ret = spi_nand_wait_not_busy(NULL /* "reading" */, &status);
+	gpio_debug0(0);
 
-	ret = spi_nand_cmd_read_from_cache(offset, buffer, buffer_size);
+	gpio_debug1(1);
+
+	ret = spi_nand_wait_not_busy(NULL /* "reading" */, &status);
+	gpio_debug1(0);
+	gpio_debug2(1);
+	for(i = 0; i < n_ops; i++) {
+		ret = spi_nand_cmd_read_from_cache(ops->offset, ops->buffer, ops->nbytes);
+		ops++;
+	}
+	gpio_debug2(0);
 
 	if (statusptr)
 		*statusptr = status;
@@ -384,19 +396,29 @@ int spi_nand_read_page(uint32_t page, uint32_t offset,
 	return ret;
 }
 
-int spi_nand_write_page(uint32_t page, uint32_t offset,
-					   uint8_t *buffer, uint32_t buffer_size,
-					   uint8_t *statusptr)
+int spi_nand_write_page(uint32_t page,
+		   	   	   	    struct spi_nand_buffer_op *ops,
+						uint32_t n_ops,
+						uint8_t *statusptr)
 {
 	int ret;
 	uint8_t status;
+	uint32_t i;
 
 	ret = spi_nand_cmd_write_enable(1);
 	ret = spi_unlock_all_blocks();
-	ret = spi_nand_cmd_program_load(offset, buffer, buffer_size);
+
+	gpio_debug3(1);
+
+	for(i = 0; i < n_ops; i++) {
+		ret = spi_nand_cmd_program_load(i != 0, ops->offset, ops->buffer, ops->nbytes);
+		ops++;
+	}
+	gpio_debug3(0);
+
 	ret = spi_nand_cmd_program_execute(page);
 
-	ret = spi_nand_wait_not_busy("writing", &status);
+	ret = spi_nand_wait_not_busy(NULL /* "writing" */, &status);
 
 	if (statusptr)
 		*statusptr = status;
@@ -413,7 +435,7 @@ int spi_nand_erase_block(uint32_t block, uint8_t *statusptr)
 	ret = spi_unlock_all_blocks();
 	ret = spi_nand_cmd_erase_block(block);
 
-	ret = spi_nand_wait_not_busy("erasing", &status);
+	ret = spi_nand_wait_not_busy(NULL /*"erasing" */, &status);
 
 	if (statusptr)
 		*statusptr = status;
@@ -425,17 +447,28 @@ int spi_nand_erase_block(uint32_t block, uint8_t *statusptr)
 int spi_nand_check_block_ok(uint32_t block, uint32_t *is_ok)
 {
 	int ret;
-	uint8_t buffer[2];
+	uint8_t buffer[BAD_BLOCK_MARKER_SIZE];
 	uint8_t status;
 	uint32_t ok;
+	struct spi_nand_buffer_op op;
 
-	ret = spi_nand_read_page(block * PAGES_PER_BLOCK, PAGE_OOB_OFFSET,
-							 buffer, sizeof(buffer), &status);
+	op.offset = BAD_BLOCK_MARKER_OFFSET;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
+
+	ret = spi_nand_read_page(block * PAGES_PER_BLOCK, &op, 1, &status);
 	ok = (buffer[0] == 0xff && buffer[1] == 0xff);
 
-	if (!ok)
-		dprintf("block %lu, read bytes returned %d: status %02x, bytes %02x %02x\n",
-					block, ret, status, buffer[0], buffer[1] );
+	if (0 && !ok) {
+		int i;
+
+		dprintf("block %lu, read bytes returned %d: status %02x, bytes",
+					block, ret, status);
+		for(i = 0; i  < sizeof(buffer); i++)
+			dprintf(" %02X", buffer[i]);
+		dprintf("\n");
+	}
+
 	if (is_ok)
 		*is_ok = ok;
 	return ret;
@@ -446,6 +479,11 @@ int spi_nand_mark_block_bad(uint32_t block, uint8_t *status)
 	uint8_t buffer[16] = {0};
 	int ret;
 	uint8_t config;
+	struct spi_nand_buffer_op op;
+
+	op.offset = BAD_BLOCK_MARKER_OFFSET;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
 
 	ret = spi_nand_get_configuration(&config);
 
@@ -455,8 +493,7 @@ int spi_nand_mark_block_bad(uint32_t block, uint8_t *status)
 	}
 
 	/* Write 16 bytes of 0x00 to the spare area. */
-	ret = spi_nand_write_page(block * PAGES_PER_BLOCK, PAGE_OOB_OFFSET,
-						     buffer, sizeof(buffer), status);
+	ret = spi_nand_write_page(block * PAGES_PER_BLOCK, &op, 1, status);
 
 	if (config & 0x10) {
 		/* ECC was enabled, re-enable. */
@@ -504,10 +541,14 @@ void page_erase_test(void)
 	int ret;
 	uint8_t status;
 	uint32_t page = 5;
-	uint32_t offset = 0;
+	struct spi_nand_buffer_op op;
 
-	ret = spi_nand_read_page(page, offset,
-						     buffer, sizeof(buffer),
+	op.offset = 0;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
+
+	ret = spi_nand_read_page(page,
+							 &op, 1,
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
@@ -517,8 +558,8 @@ void page_erase_test(void)
 	printf("block erase returned %d, status %02x\n",
 			ret, status);
 
-	ret = spi_nand_read_page(page, offset,
-						     buffer, sizeof(buffer),
+	ret = spi_nand_read_page(page,
+							 &op, 1,
 						   	 &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
@@ -531,26 +572,32 @@ void page_read_write_test(void)
 	int ret;
 	uint8_t status;
 	uint32_t page = 5;
-	uint32_t offset = 0;
+	struct spi_nand_buffer_op op;
 
-	ret = spi_nand_read_page(page, offset,
-						     buffer, sizeof(buffer),
-						   	 &status);
+	op.offset = 0;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
+
+	ret = spi_nand_read_page(page, &op, 1, &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
 	print_buffer(buffer, sizeof(buffer));
 
 	memcpy(buffer, "hello", 6);
 
-	ret = spi_nand_write_page(page, 3,
-						     buffer, sizeof(buffer),
-						   	 &status);
+	op.offset = 3;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
+
+	ret = spi_nand_write_page(page, &op, 1, &status);
 	printf("write page returned %d, status %02x\n",
 			ret, status);
 
-	ret = spi_nand_read_page(page, offset,
-						     buffer, sizeof(buffer),
-						   	 &status);
+	op.offset = 0;
+	op.buffer = buffer;
+	op.nbytes = sizeof(buffer);
+
+	ret = spi_nand_read_page(page, &op, 1, &status);
 	printf("read page returned %d, status %02x\n",
 			ret, status);
 	print_buffer(buffer, sizeof(buffer));
