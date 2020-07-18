@@ -309,8 +309,9 @@ void yaffs_call_all_funcs(void)
 	(void) ret;
 	ret = yaffs_spi_nand_load_driver("/m", 0, 200);
 
+	start = HAL_GetTick();
 	ret = yaffs_mount("/m");
-	printf("Mounting /m returned %d\n", ret);
+	printf("Mounting /m returned %d, took %d msec\n", ret, HAL_GetTick() - start);
 
 	fill_local_buffer();
 	printf("Start writing 10 Mbytes\n");
