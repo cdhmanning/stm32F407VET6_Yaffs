@@ -29,7 +29,31 @@
 #define dprintf(...) do { } while (0)
 #endif
 
+struct nand_command_def {
+	uint8_t opcode;
+	uint8_t n_addr;
+	uint8_t n_dummy;
+	uint8_t data_is_tx;
+	uint8_t quad_data;
+	uint8_t quad_address;
+};
 
+const struct nand_command_def cmd_def_reset = 					{ 0xff, 0, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_get_features = 			{ 0x0f, 1, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_set_features = 			{ 0x1f, 1, 0, 1, 0, 0};
+const struct nand_command_def cmd_def_read_id = 				{ 0x9f, 0, 1, 0, 0, 0};
+const struct nand_command_def cmd_def_page_read = 		 		{ 0x13, 3, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_read_from_cache_1 = 		{ 0x03, 2, 1, 0, 0, 0};
+const struct nand_command_def cmd_def_read_from_cache_4 = 		{ 0x6B, 2, 1, 0, 1, 0};
+const struct nand_command_def cmd_def_read_from_cache_quad = 	{ 0x6B, 2, 1, 0, 1, 1};
+const struct nand_command_def cmd_def_write_enable = 			{ 0x06, 0, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_write_disable = 			{ 0x04, 0, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_block_erase = 			{ 0xd8, 3, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_program_execute = 		{ 0x10, 3, 0, 0, 0, 0};
+const struct nand_command_def cmd_def_program_load_1 = 			{ 0x02, 2, 0, 1, 0, 0};
+const struct nand_command_def cmd_def_program_load_4 = 			{ 0x32, 2, 0, 1, 1, 0};
+const struct nand_command_def cmd_def_program_load_random_1 =	{ 0x84, 2, 0, 1, 0, 0};
+const struct nand_command_def cmd_def_program_load_random_4 =	{ 0x34, 2, 0, 1, 1, 0};
 
 void print_buffer(const uint8_t *buffer, uint32_t buffer_size)
 {
@@ -40,11 +64,82 @@ void print_buffer(const uint8_t *buffer, uint32_t buffer_size)
 }
 
 
+#if 1
+
+static volatile uint32_t transmit_complete;
+static volatile uint32_t receive_complete;
+
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  (void)hspi;
+  transmit_complete = 1;
+}
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  (void)hspi;
+  receive_complete = 1;
+}
+
+static int spi_nand_transmit_data(const uint8_t *buffer, uint32_t buffer_size)
+{
+	int ret;
+
+	if (buffer_size < 10)
+		return HAL_SPI_Transmit(&nand_spi, (uint8_t *)buffer, buffer_size, 10);
+
+	transmit_complete = 0;
+	ret = HAL_SPI_Transmit_DMA(&nand_spi, (uint8_t *)buffer, buffer_size);
+
+	if (ret < 0)
+		return ret;
+
+	while (!transmit_complete) {
+		/* Spin */
+	}
+
+	return ret;
+}
+
+static int spi_nand_receive_data(uint8_t *buffer, uint32_t buffer_size)
+{
+	int ret;
+
+	if (buffer_size < 10)
+		return HAL_SPI_Receive(&nand_spi, buffer, buffer_size, 10);
+
+	receive_complete = 0;
+	ret = HAL_SPI_Receive_DMA(&nand_spi, buffer, buffer_size);
+
+	if (ret < 0)
+		return ret;
+
+	while (!receive_complete) {
+		/* Spin */
+	}
+
+	return ret;
+}
+
+#else
+
+static int spi_nand_transmit_data(uint8_t *buffer, uint32_t buffer_size)
+{
+	return HAL_SPI_Transmit(&nand_spi, buffer, buffer_size, 10);
+}
+
+static int spi_nand_receive_data(uint8_t *buffer, uint32_t buffer_size)
+{
+	return HAL_SPI_Receive(&nand_spi, buffer, buffer_size, 10);
+}
+
+#endif
+
 
 /* Base transaction handler and
- * three variants of commands to perform transaction.
+ * three variants of functions to perform transaction.
  */
-static int spi_nand_transaction(uint8_t *header,
+static int spi_nand_do_transaction(const uint8_t *header,
 								 uint32_t header_size,
 								 uint32_t data_is_tx,
 								 uint8_t *data,
@@ -58,48 +153,25 @@ static int spi_nand_transaction(uint8_t *header,
 	 */
 	gpio_NAND_CS(0);
 	gpio_NAND_CS(0);
-	/* Send transaction header (opcode, address, dummy) */
+	/* Send transaction header (opcode, optional address, optional dummy) */
 	if (header && header_size)
-		ret = HAL_SPI_Transmit(&nand_spi, header, header_size, 10);
+		ret = spi_nand_transmit_data(header, header_size);
 
-	/* Send or receive data */
+	/* Send or receive data if required. */
 	if (data_is_tx && data && data_size)
-		ret = HAL_SPI_Transmit(&nand_spi, data, data_size, 10);
+		ret = spi_nand_transmit_data(data, data_size);
 	else if (data && data_size)
-		ret = HAL_SPI_Receive(&nand_spi, data, data_size, 10);
+		ret = spi_nand_receive_data(data, data_size);
+
+	/* Finish off SPI transaction by deselecting. */
 	gpio_NAND_CS(1);
 
 	return ret;
 }
 
-static int spi_nand_no_addr_transaction(uint8_t op_code,
-									    uint32_t n_dummy_bytes,
-										uint32_t data_is_tx,
-										uint8_t *data,
-										uint32_t data_size)
-{
-	uint8_t header[MAX_DUMMY_BYTES + 1];
-	uint32_t header_size;
 
-	header[0] = op_code;
-	header_size = 1 + n_dummy_bytes;
-	return spi_nand_transaction(header, header_size,
-						 	    data_is_tx,
-								data, data_size);
-}
-
-static int spi_nand_no_data_transaction(uint8_t op_code)
-{
-	return spi_nand_transaction(&op_code, 1,
-						 	    0,
-								NULL, 0);
-}
-
-static int spi_nand_addr_transaction(uint8_t op_code,
+static int spi_nand_transaction(const struct nand_command_def *cmd,
 								uint32_t address,
-								uint32_t n_address_bytes,
-								uint32_t n_dummy_bytes,
-								uint32_t data_is_tx,
 								uint8_t *data,
 								uint32_t data_size)
 {
@@ -108,33 +180,29 @@ static int spi_nand_addr_transaction(uint8_t op_code,
 				   + MAX_DUMMY_BYTES];
 	uint32_t header_size;
 
-	if (n_address_bytes > MAX_ADDRESS_BYTES ||
-		n_dummy_bytes > MAX_DUMMY_BYTES)
-		return -1;
-
-	header[0]= op_code;
+	header[0]= cmd->opcode;
 	header_size = 1;
 
 	/* Addresses are MSB first */
-	if (n_address_bytes == 1) {
+	if (cmd->n_addr == 1) {
 		header[1] = (uint8_t) (address >> 0);
 		header_size = 2;
-	} else if (n_address_bytes == 2) {
+	} else if (cmd->n_addr == 2) {
 		header[1] = (uint8_t) (address >> 8);
 		header[2] = (uint8_t) (address >> 0);
 		header_size = 3;
-	} else if (n_address_bytes == 3) {
+	} else if (cmd->n_addr == 3) {
 		header[1] = (uint8_t) (address >> 16);
 		header[2] = (uint8_t) (address >> 8);
 		header[3] = (uint8_t) (address >> 0);
 		header_size = 4;
 	}
 
-	header_size += n_dummy_bytes;
+	header_size += cmd->n_dummy;
 
-	return spi_nand_transaction(header, header_size,
-						 	    data_is_tx,
-								data, data_size);
+	return spi_nand_do_transaction(header, header_size,
+						 	    	cmd->data_is_tx,
+									data, data_size);
 }
 
 /*
@@ -143,78 +211,65 @@ static int spi_nand_addr_transaction(uint8_t op_code,
 
 static int spi_nand_cmd_reset(void)
 {
-	return spi_nand_no_data_transaction(0xff);
+	return spi_nand_transaction(&cmd_def_reset, 0, NULL, 0);
 }
 
 
-static int spi_nand_cmd_get_feature(uint32_t address,
+static int spi_nand_cmd_get_features(uint32_t address,
 									uint8_t *data)
 {
-	return spi_nand_addr_transaction(0x0f,
-									 address, 1,
-									 0, 0,
-									 data, 1);
+	return spi_nand_transaction(&cmd_def_get_features,
+								address,
+								data, 1);
 }
 
-static int spi_nand_cmd_set_feature(uint32_t address,
+static int spi_nand_cmd_set_features(uint32_t address,
 						 	 	 	uint8_t data)
 {
-	return spi_nand_addr_transaction(0x1f,
-									 address, 1,
-									 0, 1,
-									 &data, 1);
+	return spi_nand_transaction(&cmd_def_set_features,
+								address,
+								&data, 1);
 }
 
 int spi_nand_cmd_read_id(uint8_t id[2])
 {
-	return spi_nand_no_addr_transaction(0x9f,
-										1, 0,
-										id, 2);
+	return spi_nand_transaction(&cmd_def_read_id, 0, id, 2);
 }
 
 int spi_nand_cmd_read_array_to_cache(uint32_t page)
 {
-	return spi_nand_addr_transaction(0x13,
-									page, 3,
-									0,
-									0, NULL, 0);
+	return spi_nand_transaction(&cmd_def_page_read, page, NULL, 0);
 }
 
 static int spi_nand_cmd_read_from_cache(uint32_t offset, uint8_t *buffer, uint32_t buffer_size)
 {
-	return spi_nand_addr_transaction(0x03,
-									offset, 2,
-									1,
-									0, buffer, buffer_size);
+	return spi_nand_transaction(&cmd_def_read_from_cache_1, offset, buffer, buffer_size);
 }
 
 int spi_nand_cmd_write_enable(int enable)
 {
-	return spi_nand_no_data_transaction(enable ? 0x06 : 0x04);
+	return spi_nand_transaction(enable ? &cmd_def_write_enable : &cmd_def_write_disable,
+								0, NULL, 0);
 }
 
 int spi_nand_cmd_erase_block(uint32_t block)
 {
-	return spi_nand_addr_transaction(0xd8,
-									block, 3,
-									0,
-									0, NULL, 0);
+	return spi_nand_transaction(&cmd_def_block_erase, block, NULL, 0);
 }
 
 static int spi_nand_cmd_program_execute(uint32_t page)
 {
-	return spi_nand_addr_transaction(0x10,
-									page, 3,
-									0,
-									0, NULL, 0);
+	return spi_nand_transaction(&cmd_def_program_execute, page, NULL, 0);
 }
 
-static int spi_nand_cmd_program_load(uint32_t random_data, uint32_t offset, const uint8_t *buffer, uint32_t buffer_size)
+static int spi_nand_cmd_program_load(uint32_t random_data, uint32_t offset,
+									 const uint8_t *buffer, uint32_t buffer_size)
 {
-	return spi_nand_addr_transaction(random_data ? 0x84 : 0x02,
-									offset, 2,
-									0,
-									1, (uint8_t *)buffer, buffer_size);
+	return spi_nand_transaction(random_data ?
+									&cmd_def_program_load_random_1 :
+									&cmd_def_program_load_1,
+								offset,
+								(uint8_t *)buffer, buffer_size);
 }
 
 /*
@@ -225,12 +280,12 @@ static int spi_nand_cmd_program_load(uint32_t random_data, uint32_t offset, cons
  */
 static int spi_nand_get_block_lock(uint8_t *lock)
 {
-	return spi_nand_cmd_get_feature(0xA0, lock);
+	return spi_nand_cmd_get_features(0xA0, lock);
 }
 
 static int spi_nand_set_block_lock(uint8_t lock)
 {
-	return spi_nand_cmd_set_feature(0xA0, lock);
+	return spi_nand_cmd_set_features(0xA0, lock);
 }
 
 static int spi_unlock_all_blocks(void)
@@ -250,18 +305,18 @@ static int spi_lock_all_blocks(void)
  */
 static int spi_nand_get_configuration(uint8_t *cfg)
 {
-	return spi_nand_cmd_get_feature(0xB0, cfg);
+	return spi_nand_cmd_get_features(0xB0, cfg);
 }
 
 static int spi_nand_set_configuration(uint8_t cfg)
 {
-	return spi_nand_cmd_set_feature(0xB0, cfg);
+	return spi_nand_cmd_set_features(0xB0, cfg);
 }
 
 /* Status is read only. */
 static int spi_nand_get_status(uint8_t *status)
 {
-	return spi_nand_cmd_get_feature(0xc0, status);
+	return spi_nand_cmd_get_features(0xc0, status);
 }
 
 /*
@@ -286,8 +341,6 @@ static int spi_nand_wait_not_busy(const char *label, uint8_t *statusptr)
 
 	return ret;
 }
-
-
 
 /*
  * Higher level commands
