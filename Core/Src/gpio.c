@@ -103,7 +103,7 @@ void gpio_LED1(uint32_t enable)
 
 void gpio_NAND_CS(uint32_t ncs)
 {
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, ncs);
+	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, ncs);
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, ncs);
 }
 
